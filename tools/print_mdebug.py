@@ -328,23 +328,29 @@ def print_typedef_symbols(file_data, fd, symbolic_header, typedef_sym_num):
     name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + typedef_sym.iss)
     print('typedef %s;' % get_type_string(file_data, fd, symbolic_header, typedef_sym.index, name, False))
 
-def print_procedure(file_data, fd, symbolic_header, proc_sym_num):
+def print_procedure(file_data, fd, symbolic_header, proc_sym_num, is_static):
     proc_sym = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + proc_sym_num*12)
     proc_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + proc_sym.iss)
-    print('%s(' % get_type_string(file_data, fd, symbolic_header, proc_sym.index+1, proc_name, True), end='')
+    # print('%s(' % get_type_string(file_data, fd, symbolic_header, proc_sym.index+1, proc_name, True), end='')
     sym_num = proc_sym_num+1
     param_sym = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + sym_num*12)
     first = True
     while param_sym.st == 3: # stParam
         param_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + param_sym.iss)
-        print('%s%s' % ('' if first else ', ',
-                        get_type_string(file_data, fd, symbolic_header, param_sym.index, param_name, True)),
-               end='')
+        # print('%s%s' % ('' if first else ', ',
+        #                 get_type_string(file_data, fd, symbolic_header, param_sym.index, param_name, True)),
+        #        end='')
         sym_num += 1
         param_sym = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + sym_num*12)
         first = False
 
-    print(');')
+    # print(');')
+
+    if proc_sym.value < 0:
+        proc_address = 0x100000000 + proc_sym.value
+    else:
+        proc_address = proc_sym.value
+    print('%s %s = 0x%08X;' % ("static" if is_static else "extern", proc_name, proc_address))
 
     check_indent();
 
@@ -353,7 +359,7 @@ def print_procedure(file_data, fd, symbolic_header, proc_sym_num):
         sym = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + sym_num*12)
         sym_num += 1
         if sym.st == 7: # stBlock
-            print('%s{' % get_indent())
+            # print('%s{' % get_indent())
             increase_indent()
         elif sym.st == 8: # stEnd
             end_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + sym.iss)
@@ -364,37 +370,38 @@ def print_procedure(file_data, fd, symbolic_header, proc_sym_num):
                 sym_num -= 1
                 break
             decrease_indent()
-            print('%s}' % get_indent())
+            # print('%s}' % get_indent())
         elif sym.st == 4: # stLocal
             local_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + sym.iss)
             is_reg = sym.sc == 4 # scRegister
-            print('%s%s%s;' % (get_indent(),
-                'register ' if is_reg else '',
-                get_type_string(file_data, fd, symbolic_header, sym.index, local_name, True)))
-        elif sym.st == 2: # stStatic
+            # print('%s%s%s;' % (get_indent(),
+            #     'register ' if is_reg else '',
+            #     get_type_string(file_data, fd, symbolic_header, sym.index, local_name, True)))
+        if sym.st == 2: # stStatic
             static_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + sym.iss)
-            if sym.index == 0xFFFFF:
-                print('%sstatic %s; // no type symbol' % (get_indent(),static_name))
+            if sym.value < 0:
+                address = 0x100000000 + sym.value
             else:
-                print('%sstatic %s;' % (get_indent(),get_type_string(file_data, fd, symbolic_header, sym.index, static_name, True)))
-        elif sym.st == 5: # stLabel
-            label_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + sym.iss)
-            print('%sLabel: %s @ %d;' % (get_indent(), label_name, sym.value))
-        elif sym.st == 6: # stProc
-            # multiple name for function?
-            sym_num = print_procedure(file_data, fd, symbolic_header, sym_num-1)
-        elif sym.st == 26 or sym.st == 27: # stStruct, stUnion
-            print('%s%s;' % (get_indent(), get_struct_or_union_string(file_data, fd, symbolic_header, sym_num-1, False)))
-            sym_num = fd.isymBase + sym.index
+                address = sym.value
+            print('%sstatic %s = 0x%08X;' % (get_indent(),static_name,address))
+        # elif sym.st == 5: # stLabel
+        #     label_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + sym.iss)
+        #     print('%sLabel: %s @ %d;' % (get_indent(), label_name, sym.value))
+        # elif sym.st == 6: # stProc
+        #     # multiple name for function?
+        #     sym_num = print_procedure(file_data, fd, symbolic_header, sym_num-1)
+        # elif sym.st == 26 or sym.st == 27: # stStruct, stUnion
+        #     print('%s%s;' % (get_indent(), get_struct_or_union_string(file_data, fd, symbolic_header, sym_num-1, False)))
+        #     sym_num = fd.isymBase + sym.index
         elif sym.st == 28: # stEnum
             print('%s%s;' % (get_indent(), get_enum_string(file_data, fd, symbolic_header, sym_num-1)))
             sym_num = fd.isymBase + sym.index
-        elif sym.st == 34: # stIndirect
-            # TODO what even is a stIndirect?
-            indirect_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + sym.iss)
-            print('%sTODO Indirect: %s;' % (get_indent(), indirect_name))
-        else:
-            print('ERROR unknown st in print_procedure: %d' % sym.st)
+        # elif sym.st == 34: # stIndirect
+        #     # TODO what even is a stIndirect?
+        #     indirect_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + sym.iss)
+        #     print('%sTODO Indirect: %s;' % (get_indent(), indirect_name))
+        # else:
+        #     print('ERROR unknown st in print_procedure: %d' % sym.st)
     set_is_comment(comment_old)
 
     check_indent();
@@ -405,82 +412,84 @@ def print_symbols(file_data, fd, symbolic_header):
     sym_num = fd.isymBase
     indirects = []
     typedefs = []
-    while sym_num < fd.isymBase + fd.csym:
-        root_sym = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + sym_num*12)
-        if root_sym.st == 10: # stTypedef
-            aux = read_auxiliary_symbol(file_data, symbolic_header.cbAuxOffset - OFFSET + (fd.iauxBase + root_sym.index)*4)
-            offset = 0
-            if aux.ti.fBitfield == 1:
-                offset = 1
-            if aux.ti.bt == 12 or aux.ti.bt == 13  or aux.ti.bt == 14 or aux.ti.bt == 15: # btStruct, btUnion, btEnum, btTypedef
-                aux2 = read_auxiliary_symbol(file_data, symbolic_header.cbAuxOffset - OFFSET + (fd.iauxBase + root_sym.index + 1 + offset)*4)
-                fd_num = aux2.rndx.rfd
-                if fd_num == 4095:
-                    fd_num = read_auxiliary_symbol(file_data, symbolic_header.cbAuxOffset - OFFSET + (fd.iauxBase + root_sym.index + 2 + offset)*4).isym
-                fd_num = map_relative_file_descriptor(file_data, fd, symbolic_header, fd_num)
-                fd2 = read_file_descriptor(file_data, symbolic_header.cbFdOffset - OFFSET + fd_num*72)
-                sym2 = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + (fd2.isymBase + aux2.rndx.index)*12)
-                name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd2.issBase + sym2.iss)
-                if name != '':
-                    typedefs.append(name)
-        elif root_sym.st == 34: # stIndirect
-            name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + root_sym.iss)
-            indirects.append(name);
-        sym_num += 1
+    # while sym_num < fd.isymBase + fd.csym:
+    #     root_sym = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + sym_num*12)
+    #     if root_sym.st == 10: # stTypedef
+    #         aux = read_auxiliary_symbol(file_data, symbolic_header.cbAuxOffset - OFFSET + (fd.iauxBase + root_sym.index)*4)
+    #         offset = 0
+    #         if aux.ti.fBitfield == 1:
+    #             offset = 1
+    #         if aux.ti.bt == 12 or aux.ti.bt == 13  or aux.ti.bt == 14 or aux.ti.bt == 15: # btStruct, btUnion, btEnum, btTypedef
+    #             aux2 = read_auxiliary_symbol(file_data, symbolic_header.cbAuxOffset - OFFSET + (fd.iauxBase + root_sym.index + 1 + offset)*4)
+    #             fd_num = aux2.rndx.rfd
+    #             if fd_num == 4095:
+    #                 fd_num = read_auxiliary_symbol(file_data, symbolic_header.cbAuxOffset - OFFSET + (fd.iauxBase + root_sym.index + 2 + offset)*4).isym
+    #             fd_num = map_relative_file_descriptor(file_data, fd, symbolic_header, fd_num)
+    #             fd2 = read_file_descriptor(file_data, symbolic_header.cbFdOffset - OFFSET + fd_num*72)
+    #             sym2 = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + (fd2.isymBase + aux2.rndx.index)*12)
+    #             name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd2.issBase + sym2.iss)
+    #             if name != '':
+    #                 typedefs.append(name)
+    #     elif root_sym.st == 34: # stIndirect
+    #         name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + root_sym.iss)
+    #         indirects.append(name);
+    #     sym_num += 1
     sym_num = fd.isymBase
     while sym_num < fd.isymBase + fd.csym:
         root_sym = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + sym_num*12)
         if root_sym.st == 11: # stFile
             file_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + root_sym.iss)
-            print('// begin file %s\n' %  file_name)
+            # print('// begin file %s\n' %  file_name)
             sym_num += 1
             leaf_sym = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + sym_num*12)
             while leaf_sym.st != 8: # stEnd
-                if leaf_sym.st == 26 or leaf_sym.st == 27: # stStruct, stUnion
-                    name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + leaf_sym.iss)
-                    if (name != '') and ((name in indirects) or (name not in typedefs)): # TODO
-                        print('%s;\n' % get_struct_or_union_string(file_data, fd, symbolic_header, sym_num, False))
-                    sym_num = fd.isymBase + leaf_sym.index
-                elif leaf_sym.st == 28: # stEnum
-                    name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + leaf_sym.iss)
-                    if (name != '') and (name not in typedefs): # TODO
-                        print('%s;\n' % get_enum_string(file_data, fd, symbolic_header, sym_num))
-                    sym_num = fd.isymBase + leaf_sym.index
-                elif leaf_sym.st == 10: # stTypedef
-                    # TODO typedef for stIndirect shoulf print the keyword i.e. typdef >struct< THING thing
-                    print_typedef_symbols(file_data, fd, symbolic_header, sym_num)
-                    sym_num += 1
-                    print('')
-                elif leaf_sym.st == 6 or leaf_sym.st == 14: # stProc, stStaticProc
+                # if leaf_sym.st == 26 or leaf_sym.st == 27: # stStruct, stUnion
+                #     name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + leaf_sym.iss)
+                #     if (name != '') and ((name in indirects) or (name not in typedefs)): # TODO
+                #         print('%s;\n' % get_struct_or_union_string(file_data, fd, symbolic_header, sym_num, False))
+                #     sym_num = fd.isymBase + leaf_sym.index
+                # elif leaf_sym.st == 28: # stEnum
+                #     name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + leaf_sym.iss)
+                #     if (name != '') and (name not in typedefs): # TODO
+                #         print('%s;\n' % get_enum_string(file_data, fd, symbolic_header, sym_num))
+                #     sym_num = fd.isymBase + leaf_sym.index
+                # elif leaf_sym.st == 10: # stTypedef
+                #     # TODO typedef for stIndirect shoulf print the keyword i.e. typdef >struct< THING thing
+                #     print_typedef_symbols(file_data, fd, symbolic_header, sym_num)
+                #     sym_num += 1
+                #     print('')
+                if leaf_sym.st == 6 or leaf_sym.st == 14: # stProc, stStaticProc
                     # TODO how do stProc and stStaticProc differ? stStaticProc isn't exported?
-                    sym_num = print_procedure(file_data, fd, symbolic_header, sym_num)
+                    is_static = leaf_sym.st == 14
+                    sym_num = print_procedure(file_data, fd, symbolic_header, sym_num, is_static)
                     print('')
                 elif leaf_sym.st == 2: # stStatic
                     static_name = read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + leaf_sym.iss)
-                    if leaf_sym.sc == 2 or leaf_sym.sc == 3 or leaf_sym.sc == 5 or leaf_sym.sc == 15: # scData, scBss, scAbsolute, scRData
-                        if leaf_sym.index != 0xFFFFF: # looks like it's an invalid value for .s files
-                            print('static %s;\n' % get_type_string(file_data, fd, symbolic_header, leaf_sym.index, static_name, True))
+                    if leaf_sym.sc == 2 or leaf_sym.sc == 3 or leaf_sym.sc == 15: # scData, scBss, scRData
+                        if leaf_sym.value < 0:
+                            address = 0x100000000 + leaf_sym.value
                         else:
-                            print('static %s;\n' % static_name)
-                    else:
-                         print('ERROR unknown sc for stStatic in print_symbols: %d' % leaf_sym.sc)
+                            address = leaf_sym.value
+                        print('static %s = 0x%08X;\n' % (static_name, address))
+                    # else:
+                    #      print('ERROR unknown sc for stStatic in print_symbols: %d' % leaf_sym.sc)
                     sym_num += 1
-                elif leaf_sym.st == 34: # stIndirect
-                     # stIndirect is put out when the compiler sees a struct when it is not yet defined
-                     # TODO more info
-                    sym_num += 1
-                elif leaf_sym.st == 5: # stLabel
-                    print('// label: %s' % read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + leaf_sym.iss))
-                    sym_num += 1
-                elif leaf_sym.st == 0: # stNil
-                    print('// nil: %s' % read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + leaf_sym.iss))
-                    sym_num += 1
+                # elif leaf_sym.st == 34: # stIndirect
+                #      # stIndirect is put out when the compiler sees a struct when it is not yet defined
+                #      # TODO more info
+                #     sym_num += 1
+                # elif leaf_sym.st == 5: # stLabel
+                #     print('// label: %s' % read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + leaf_sym.iss))
+                #     sym_num += 1
+                # elif leaf_sym.st == 0: # stNil
+                #     print('// nil: %s' % read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + leaf_sym.iss))
+                #     sym_num += 1
                 else:
-                    print('ERROR unknown st in leaf_sym in print_symbols: %d' % leaf_sym.st)
+                    # print('ERROR unknown st in leaf_sym in print_symbols: %d' % leaf_sym.st)
                     sym_num += 1
                 leaf_sym = read_symbol(file_data, symbolic_header.cbSymOffset - OFFSET + sym_num*12)
             sym_num = fd.isymBase + root_sym.index
-            print('// end file %s' %  file_name)
+            # print('// end file %s' %  file_name)
         else:
             print('ERROR expected st of stFile as only root type in print_symbols:%d' % root_sym.st)
             return
@@ -512,7 +521,7 @@ def main():
     if debug_index != 0xFFFFFFFF:
         symbolic_header = read_symbolic_header(file_data, section_headers[debug_index].sh_offset)
         file_descriptors = []
-        print('%r' % (symbolic_header,))
+        # print('%r' % (symbolic_header,))
         # Set offset by assuming that there are no optimization symbols so cbOptOffset points to the start of the symbolic header
         #OFFSET = symbolic_header.cbOptOffset - section_headers[debug_index].sh_offset
         #print('Using OFFSET of %d' % OFFSET)
@@ -527,8 +536,8 @@ def main():
             file_descriptors.append(fd)
         for file_num in range(symbolic_header.ifdMax):
             fd = read_file_descriptor(file_data, symbolic_header.cbFdOffset - OFFSET + file_num*72)
-            print('%r' % (fd,))
-            print('    name:%s' % read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + fd.rss))
+            # print('%r' % (fd,))
+            # print('    name:%s' % read_string(file_data, symbolic_header.cbSsOffset - OFFSET + fd.issBase + fd.rss))
 
             '''
             print('    Relative File Descriptors:')
@@ -582,7 +591,7 @@ def main():
                     print('            %r' % ((type_aux,)))
             '''
 
-            print('    pretty print:')
+            # print('    pretty print:')
             print_symbols(file_data, fd, symbolic_header)
 
 
